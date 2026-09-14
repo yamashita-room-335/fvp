@@ -88,6 +88,30 @@ Java_com_mediadevkit_fvp_FvpPlugin_nativeSetSurface(JNIEnv *env, jobject thiz, j
     players[tex_id] = player;
 }
 
+/*!
+  Forget the TexturePlayer for tex_id without detaching the surface from the mdk player.
+  Used when the dart side is about to destroy the player: the player destructor tears down
+  the render thread while the native window is still alive (mdk requires the native surface
+  to be valid when the player is destroyed). Calling updateNativeSurface(nullptr) here instead
+  races with an attach/resize job still queued on the render thread, which then reads a null
+  window (ANativeWindow_getFormat(nullptr)) or, if the Surface was already released, a
+  destroyed one.
+ */
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_mediadevkit_fvp_FvpPlugin_nativeForgetSurface(JNIEnv *env, jobject thiz, jlong tex_id) {
+    if (auto it = players.find(tex_id); it != players.end()) {
+        auto& player = it->second;
+        if (player->surface) { // tunnel mode holds a global ref
+            env->DeleteGlobalRef(player->surface);
+            player->surface = nullptr;
+        }
+        players.erase(it);
+    } else {
+        clog << "player not found(already removed?) for textureId " + std::to_string(tex_id) << endl;
+    }
+}
+
 extern "C"
 JNIEXPORT bool JNICALL
 MdkIsEmulator()

@@ -119,7 +119,7 @@ public class FvpPlugin implements FlutterPlugin, MethodCallHandler {
       }
 //// FLUTTER_3.24_END
     } else if (call.method.equals("ReleaseRT")) {
-      // Detach the surface from the mdk player only. The TextureEntry (and therefore the
+      // Forget the surface on the native side only. The TextureEntry (and therefore the
       // ImageReader that owns the Surface) is released later by DestroyRT, after the dart
       // side has destroyed the mdk player.
       //
@@ -130,7 +130,11 @@ public class FvpPlugin implements FlutterPlugin, MethodCallHandler {
       // The legacy SurfaceTexture path never released its Surface, so it was not affected.
       final int texId = call.argument("texture"); // 32bit int, 0, 1, 2 .... but SurfaceTexture.id() is long
       final long texId64 = texId; // MUST cast texId to long, otherwise remove() error
-      nativeSetSurface(0, texId, null, -1, -1, false);
+      // Do not detach (updateNativeSurface(null)) here: the dart side destroys the player right
+      // after this call and the player destructor waits for the render thread with the window
+      // still alive. Detaching first races with an attach/resize job queued on the render thread
+      // (ANativeWindow_getFormat on a null or destroyed window).
+      nativeForgetSurface(texId);
       if (!textures.containsKey(texId64)) {
         Log.w("FvpPlugin", "onMethodCall: ReleaseRT texId not found: " + texId);
       }
@@ -184,6 +188,11 @@ public class FvpPlugin implements FlutterPlugin, MethodCallHandler {
     \param texId
    */
   private native void nativeSetSurface(long playerHandle, long texId, Surface surface, int w, int h, boolean tunnel);
+  /*!
+    Drop the native wrapper for texId without detaching the surface. The dart side destroys the
+    player next; the surface itself is released by DestroyRT afterwards.
+   */
+  private native void nativeForgetSurface(long texId);
 
   static {
     try {
